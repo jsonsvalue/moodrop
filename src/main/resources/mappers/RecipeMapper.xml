@@ -1,0 +1,153 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" 
+	"http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+
+<mapper namespace="com.moodrop.model.dao.RecipeDao">
+	
+	<!-- composition String -> JSON으로 바꾼다. -->
+	<resultMap id="UserRecipeMap" type="com.moodrop.model.dto.UserRecipeDto">
+	  <result property="composition" column="composition"
+	          typeHandler="com.moodrop.typehandler.JsonToNoteListTypeHandler"/>
+	</resultMap>
+	
+	<!-- 사용자의 레시피를 조회한다. -->
+	<select id = "selectUserRecipe" resultMap = "UserRecipeMap">
+		SELECT 
+			up.id as recipeId,
+			u.id as userId,
+			u.user_id as user_id_string,
+		    u.name as user_name,
+		    up.name as perfume_name,
+		    up.description,
+			JSON_ARRAYAGG(
+			  IF(upc.note_id IS NULL, NULL,
+			     JSON_OBJECT('name', n.name, 'type', n.type, 'weight', upc.weight)
+			  )
+			) AS composition
+		    /*
+		    up.description as perfume_description,
+		    n.name as note_name,
+		    upc.weight
+		    */
+		    
+		FROM
+			user as u
+		JOIN user_perfumes as up ON u.id = up.user_id
+		LEFT JOIN user_perfume_compositions as upc ON up.id = upc.user_perfume_id 
+		LEFT JOIN notes as n ON upc.note_id = n.id
+		WHERE
+			u.user_id = #{userId}
+		GROUP BY up.id, u.id, u.user_id, u.name, up.name, up.description      
+		    /*AND EXISTS(
+				SELECT 1
+				FROM user_perfume_compositions ups
+		        WHERE upc.user_perfume_id = u.id)
+		    */
+		;
+		
+	</select>
+	
+	<select id="selectNoteIdByName">
+		select id
+		FROM notes
+		WHERE name IN 
+		     <foreach collection ="names" item="name" open="(" separator="," close=")" >
+		     	#{name}
+		     </foreach>
+	</select>
+	
+	
+	<!-- 방금 insert한 id 가져오기 (MyBatis의 useGeneratedKeys 활용) --> 
+	<insert id = "insertUserRecipe" useGeneratedKeys="true" keyProperty="userPerfumeId">
+		INSERT INTO user_perfumes (
+			user_id
+		  , name
+		  , description
+		) values (
+			#{userId}
+		  , #{perfumeName}
+		  , #{description}
+		)
+	</insert>
+	
+	<!-- name -> id로 변환해서 넣는다. -->
+	<insert id = "insertCompositionsInRecipe">		
+		INSERT INTO user_perfume_compositions (
+			user_perfume_id
+			, note_id
+			, weight
+			)
+		VALUES
+		<foreach item = "item" collection = "items" separator= ",">
+			(
+			  #{userPerfumeId}
+			, (SELECT id FROM notes WHERE name = #{item.name} LIMIT 1)
+			, #{item.weight}
+			)
+		</foreach>
+			
+		
+	</insert>
+	
+	<!-- id로 레시피를 조회한다. -->
+	<select id="selectRecipeById" resultMap="UserRecipeMap">
+		SELECT
+			u.id as user_id,
+		    u.user_id as user_id_string,
+		    up.id as user_perfume_id,
+		    up.name as perfume_name,
+		    up.description,
+		    up.rating,
+		    JSON_ARRAYAGG(
+		    JSON_OBJECT(
+		      
+		      'weight',   upc.weight,
+		      'name', n.name,
+		      'type', n.type
+		    )
+		  ) AS composition
+		    
+		FROM user as u
+		JOIN user_perfumes as up ON u.id = up.user_id
+		LEFT JOIN user_perfume_compositions as upc ON up.id = upc.user_perfume_id
+		LEFT JOIN notes as n ON upc.note_id = n.id
+		WHERE
+			up.id = #{recipeId}
+		GROUP BY 
+			user_id, user_id_string, user_perfume_id, perfume_name, description, rating
+		    ;
+		
+		
+	</select>
+	
+	<!-- 
+	소유권 체크 없이 recipeId로만 삭제 
+	user 권한 확인 후 삭제하는 것이 좋다.
+	-->
+	<delete id="deleteRecipeById" parameterType="int">
+	  DELETE 
+	  FROM user_perfumes
+	  WHERE id = #{recipeId}
+	</delete>
+	
+	
+	
+	<!--
+ 	<select id="selectRecipeById" parameterType="int">
+		SELECT
+			u.id as user_id,
+			u.user_id as user_id_string,
+			
+		FROM
+			user as u
+		JOIN user_perfumes as up ON u.id = up.user_id
+		JOIN user_perfume_compositions as upc ON up.id = upc.user_perfume_id
+		
+		WHERE
+			upc.id=#{recipeId}
+		;
+		
+	</select>
+	 -->
+
+</mapper>
