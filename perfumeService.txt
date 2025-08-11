@@ -1,0 +1,231 @@
+/**
+	 * 사용자가 선택한 Perfume을 기반으로 Accord<->Note 상관관계가 높은 Note를 추출한다. */
+	/** 파이프라인: selectPerfume -> selectNotes -> calculateRatios */
+    @Override
+	public PerfumeResponseDto selectPerfume( List<String> accords, List<String> notes, int unit) {
+        NoteScoreDto[] selected = selectNotes(accords, notes);
+        Map<String, Integer> ratios = calculateRatios(selected, unit);
+        return new PerfumeResponseDto(selected, ratios);
+    }
+
+    /** Accord,Note 기반 상위 TOP/MIDDLE/BASE 선택 (MyBatis 사용) */
+    public NoteScoreDto[] selectNotes(List<String> accords, List<String> notes) {
+        if (notes == null || notes.isEmpty()) throw new IllegalArgumentException("notes is empty");
+        if (accords == null) accords = List.of();
+
+        var noteRows = dao.findNotesByNames(notes);
+        if (noteRows.size() != notes.size()) System.out.println("Unknown note exists");//throw new IllegalArgumentException("Unknown note exists");
+
+        var accordRows = accords.isEmpty() ? List.<PerfumeDao.AccordRow>of()
+                : dao.findAccordIdsByNames(accords);
+        Set<Long> accordIdSet = accordRows.stream().map(a -> a.id).collect(Collectors.toSet());
+
+        List<Long> noteIds = noteRows.stream().map(n -> n.id).toList();
+        var accordNotes = dao.findAccordNotesByNoteIds(noteIds);
+
+        // note별 점수 합산
+        Map<Long, Double> scoreMap = new HashMap<>();
+        for (Long noteId : noteIds) {
+            double score = 0.0;
+            for (var an : accordNotes) {
+                if (!an.noteId.equals(noteId)) continue;
+                score += accordIdSet.contains(an.accordId) ? an.weight : (-0.4 * an.weight);
+            }
+            scoreMap.put(noteId, score);
+        }
+
+        // 레이어별 최고 점수 선택
+        NoteScoreDto top = null, middle = null, base = null;
+        for (var n : noteRows) {
+            double sc = scoreMap.getOrDefault(n.id, 0.0);
+            NoteScoreDto dto = new NoteScoreDto(n.name, sc);
+            switch (n.type) {
+                case "TOP"    -> { if (top == null    || sc > top.getScore())    top = dto; }
+                case "MIDDLE" -> { if (middle == null || sc > middle.getScore()) middle = dto; }
+                case "BASE"   -> { if (base == null   || sc > base.getScore())   base = dto; }
+            }
+        }
+        
+        return new NoteScoreDto[]{ top, middle, base };
+    }
+
+    /** Note 별 향수 비중 계산 로직 */
+    public Map<String, Integer> calculateRatios(NoteScoreDto[] notes, int unit) {
+        int totalPercent = 100;
+        int totalUnits = totalPercent / unit;
+        Map<String, Integer> minPercent = Map.of("TOP", 20, "MIDDLE", 40, "BASE", 20);
+        Map<String, Integer> minUnits = new HashMap<>();
+        minPercent.forEach((k, v) -> minUnits.put(k, v / unit));
+
+        int usedMinUnits = minUnits.values().stream().mapToInt(Integer::intValue).sum();
+        int remainingUnits = totalUnits - usedMinUnits;
+
+        Map<String, Double> layerWeights = new HashMap<>();
+        double totalScore = 0.0;
+        for (int i = 0; i < notes.length; i++) {
+            NoteScoreDto n = notes[i];
+            if (n == null) continue;
+            String layer = switch (i) { case 0 -> "TOP"; case 1 -> "MIDDLE"; case 2 -> "BASE"; default -> "UNKNOWN"; };
+            layerWeights.put(layer, layerWeights.getOrDefault(layer, 0.0) + n.getScore());
+            totalScore += n.getScore();
+        }
+
+        Map<String, Integer> layerUnits = new HashMap<>();
+        for (String layer : minUnits.keySet()) {
+            double weight = layerWeights.getOrDefault(layer, 0.0);
+            int extra = (int) ((totalScore == 0 || weight == 0) ? 0 : (weight / totalScore) * (remainingUnits));
+            layerUnits.put(layer, minUnits.get(layer) + extra);
+        }
+
+        int correction = totalUnits - layerUnits.values().stream().mapToInt(Integer::intValue).sum();
+        if (correction != 0) {
+            String bestLayer = layerWeights.entrySet().stream()
+                    .max(Map.Entry.comparingByValue()).map(Map.Entry::getKey).orElse("MIDDLE");
+            layerUnits.put(bestLayer, layerUnits.getOrDefault(bestLayer, 0) + correction);
+        }
+
+        Map<String, Integer> finalDistribution = new LinkedHashMap<>();
+        for (int i = 0; i < notes.length; i++) {
+            NoteScoreDto n = notes[i];
+            if (n == null) continue;
+            String layer = switch (i) { case 0 -> "TOP"; case 1 -> "MIDDLE"; case 2 -> "BASE"; default -> "UNKNOWN"; };
+            double layerScoreSum = layerWeights.getOrDefault(layer, 0.0);
+            int totalLayerUnits = layerUnits.getOrDefault(layer, 0);
+            int assigned = (int) ((layerScoreSum == 0) ? totalLayerUnits : (n.getScore() / layerScoreSum) * totalLayerUnits);
+            finalDistribution.put(n.getName(), assigned * unit);
+        }
+        return finalDistribution;
+    }
+
+//    public record PerfumeResponse(
+//            NoteScoreDto[] selectedNotes,
+//            Map<String, Integer> ratios
+//    ) {}
+
+
+
+//	
+//	// 사용자가 선택한 Accord 기준으로 Perfume을 가져온다.
+//	@Override
+//	public List<PerfumeExtendedDto> filterByAccord(List<String> accords) throws SQLException {
+//		// Accord로 걸러낸 향수에 대한 기본 정보를 가져온다.
+//		List<PerfumeMatchDto> filtered =  dao.searchByAccord(accords);
+//		
+//		List<PerfumeExtendedDto> result = new ArrayList<>();
+//		
+//		for(PerfumeMatchDto perfume : filtered) {
+//			int pfId = perfume.getPerfumeId();
+//			PerfumeBasicDto basicInfo = dao.selectPerfumeBasicByPerfumeId(pfId);
+//			PerfumeExtendedDto extendedInfo = new PerfumeExtendedDto();
+//			// 기존 정보 복사
+//			BeanUtils.copyProperties(basicInfo, extendedInfo);
+//			
+//			// 추가 정보 DB에서 가져와서 더함
+//			extendedInfo.setAccordmatchCount(perfume.getAccordMatchCount());
+//			
+//			List<SillageDto> sillageList = dao.selectSillageByPerfumeId(pfId);
+//			Map<String, Integer> sillageMap = new HashMap<>();
+//			for (SillageDto s : sillageList) {
+//				sillageMap.put(s.getStrength(), s.getVoteNum());
+//			}
+//			extendedInfo.setSillage(sillageMap);
+//			
+//			List<LongevityDto> longevityList = dao.selectLongevityByPerfumeId(pfId);
+//			Map<String, Integer> longevityMap = new HashMap<>();
+//			for (LongevityDto l : longevityList) {
+//				longevityMap.put(l.getLength(), l.getVoteNum());
+//			}
+//			extendedInfo.setLongevity(longevityMap);
+//			
+//			List<NotesDto> notesList = dao.selectNotesByPerfumeId(pfId);
+//			Map<String, List<String>> notesMap = new LinkedHashMap<>();
+//			for(NotesDto n: notesList) {
+//				String key = n.getType().toLowerCase();
+//				
+//				if(!notesMap.containsKey(key)) {
+//					notesMap.put(key, new ArrayList<>());
+//				}
+//				
+//				notesMap.get(key).add(n.getName());
+//				
+//			}
+//			extendedInfo.setNotes(notesMap);
+//			
+//			result.add(extendedInfo);
+//		}
+//		
+//		return result;
+//	}
+
+
+
+////Mood에 따른 Accord 합 가중치를 내림차순으로 정렬하고, 상위 12개의 Accord를 전달한다.
+//	@Override
+//	public List<MoodAccordDto> calculateAccordWithMood(List<Integer> moodIdList) {
+//		// 1. moodIdList를 활용한 모든 moodAccordDto 가져오기.
+//		List<MoodAccordDto> moodAccords = dao.selectMoodAccords(moodIdList);
+//		
+//		// 2. Mood에 따른 Accord가 높은 순으로 정렬 후, 상위 12개 추출. 
+//		// Map accordId : moodAccordDto -> 같은 accordId라면 weight 정보를 더해준다.
+//		Map<Integer, MoodAccordDto> resultMap = new HashMap<>();
+//		
+//		for(MoodAccordDto dto : moodAccords) {
+//			// accordId가 없다면 resultMap에 생성, 있다면 기존에 있는 resultMap의 accordId에 weight를 더해준다.
+//			int accordId = dto.getAccordId();
+//			if( !resultMap.containsKey(accordId)){
+//				resultMap.put( accordId, new MoodAccordDto(
+//						dto.getMoodId(),
+//						dto.getMood(),
+//						dto.getAccordId(),
+//						dto.getAccord(),
+//						dto.getWeight()
+//						));
+//			}else {
+//				MoodAccordDto existing = resultMap.get(accordId);
+//				existing.setWeight(existing.getWeight() + dto.getWeight());
+//			}
+//		}
+//		
+//		// Map의 value를 리스트로 변환
+//		List<MoodAccordDto> mergedList = new ArrayList<>(resultMap.values());
+//
+//		// weight 내림차순 정렬
+//		mergedList.sort((a, b) -> Float.compare(b.getWeight(), a.getWeight()));
+//
+//		// 상위 12개 추출
+//		List<MoodAccordDto> result = mergedList.stream()
+//		        .limit(12)
+//		        .collect(Collectors.toList());
+//		
+//		
+//		//System.out.println(moodAccords);
+//		System.out.println(result);
+//		return result;
+//	}
+
+
+
+//		ObjectMapper mapper = new ObjectMapper();
+//		
+//		// 기본적으로 JSON은 문자열이기 때문에, Iterable하게 만들기 위해 mapper를 써야 한다.
+//		for(UserRecipeDto ur: userRecipeList) {
+//			String compositionJson = ur.getComposition(); 
+//			List<Map<String, Object>> compositionList =
+//			        mapper.readValue(compositionJson, new TypeReference<List<Map<String, Object>>>() {});
+//			
+//			for (Map<String, Object> item : compositionList) {
+//			    System.out.println(item.get("note"));   
+//			    System.out.println(item.get("type"));
+//			    System.out.println(item.get("weight"));
+//			}
+//			String composition = ur.getComposition();	
+//			System.out.println(composition);
+//			
+//		}
+
+////note name -> note id로 바꿔서 넣기
+//List<NotesDto> userCompositions = userRecipe.getComposition();
+//List<Integer> userNoteIds = dao.selectNoteIdByName(userCompositions);
+//System.out.println(userNoteIds);
+//userRecipe.setCompositionNoteIds(userNoteIds);
+

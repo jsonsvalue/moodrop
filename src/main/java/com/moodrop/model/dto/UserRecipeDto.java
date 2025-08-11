@@ -17,6 +17,7 @@ import lombok.ToString;
 @NoArgsConstructor
 public class UserRecipeDto {
 	int recipeId;
+	@JsonIgnore
 	int userPerfumeId;
 	int userId;
 	String userIdString;

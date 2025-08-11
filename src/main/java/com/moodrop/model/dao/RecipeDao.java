@@ -23,15 +23,18 @@ public interface RecipeDao {
 	    // 사용자 레시피 작성하기
 	    int insertUserRecipe(UserRecipeDto userRecipe /*, @Param("userId") Integer userId*/);
 
-	    // 레시피 수정하기
-	    int patchUserRecipe(UserRecipeDto userRecipe);
-	    
-	    // id로 레시피 조회하기
+	    // recipeId로 레시피 조회하기
 	    UserRecipeDto selectRecipeById(@Param("recipeId") int id );
 	    
-	    // id로 레시피 삭제하기
+	    // 레시피 수정하기
+	    int updateUserRecipe(UserRecipeDto userRecipe);
+	    
+	    int upsertCompositionsInRecipe(@Param("recipeId") Integer recipeId, @Param("items") List<NotesDto> items);
+	    
+	    
+	    // recipeId로 레시피 삭제하기
 	    int deleteRecipeById(int id /*, @Param("userId") Integer userId*/);
 	    
-	    
+	    int deleteCompositionById(int recipeId);
 	    
 }

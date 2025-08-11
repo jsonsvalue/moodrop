@@ -13,8 +13,8 @@
 	<!-- 사용자의 레시피를 조회한다. -->
 	<select id = "selectUserRecipe" resultMap = "UserRecipeMap">
 		SELECT 
-			up.id as recipeId,
-			u.id as userId,
+			up.id as recipe_id,
+			u.id as user_id,
 			u.user_id as user_id_string,
 		    u.name as user_name,
 		    up.name as perfume_name,
@@ -58,7 +58,7 @@
 	
 	
 	<!-- 방금 insert한 id 가져오기 (MyBatis의 useGeneratedKeys 활용) --> 
-	<insert id = "insertUserRecipe" useGeneratedKeys="true" keyProperty="userPerfumeId">
+	<insert id = "insertUserRecipe" useGeneratedKeys="true" keyProperty="recipeId">
 		INSERT INTO user_perfumes (
 			user_id
 		  , name
@@ -94,10 +94,11 @@
 		SELECT
 			u.id as user_id,
 		    u.user_id as user_id_string,
-		    up.id as user_perfume_id,
+		    up.id as recipe_id,
 		    up.name as perfume_name,
 		    up.description,
-		    up.rating,
+		    up.rating_average,
+		    up.like_count,
 		    JSON_ARRAYAGG(
 		    JSON_OBJECT(
 		      
@@ -114,7 +115,7 @@
 		WHERE
 			up.id = #{recipeId}
 		GROUP BY 
-			user_id, user_id_string, user_perfume_id, perfume_name, description, rating
+			user_id, user_id_string, user_perfume_id, perfume_name, description, rating_average, like_count
 		    ;
 		
 		
@@ -130,6 +131,46 @@
 	  WHERE id = #{recipeId}
 	</delete>
 	
+	<delete id="deleteCompositionById">
+		DELETE
+		FROM user_perfume_compositions
+		WHERE user_perfume_id = #{recipeId}
+		;
+	</delete>
+	
+	
+	<!-- 
+	user 권한 확인 필요.
+	사용자의 레시피를 수정한다.
+	 -->
+	 <update id = "updateUserRecipe">
+	 	UPDATE user_perfumes
+		   SET user_id     = #{userId}
+		     , name        = #{perfumeName}
+		     , description = #{description}
+		 WHERE id          = #{recipeId}
+	 	
+	 </update>
+	 
+	 <!-- 원래 아이디가 존재한다면 PK 충돌 시 Update, 아니라면 새로운 값 Insert  -->
+	<insert id="upsertCompositionsInRecipe">
+		INSERT INTO user_perfume_compositions(
+		user_perfume_id
+		, note_id
+		, weight
+		)
+		VALUES
+		<foreach collection ="items" item ="item" separator=",">
+			(
+				#{recipeId},
+				(SELECT id FROM notes WHERE name = #{item.name} LIMIT 1),
+				#{item.weight}
+			)
+		</foreach>
+		ON DUPLICATE KEY UPDATE
+			weight = VALUES(weight)
+	
+	</insert> 
 	
 	
 	<!--
