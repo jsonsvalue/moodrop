@@ -1,6 +1,6 @@
 package com.moodrop.model.dto;
 
-import com.fasterxml.jackson.annotation.JsonIgnore;
+import java.util.List;
 
 import lombok.AllArgsConstructor;
 import lombok.Getter;
@@ -13,11 +13,9 @@ import lombok.ToString;
 @ToString
 @AllArgsConstructor
 @NoArgsConstructor
-public class NotesDto {
-	// Note Info
-	@JsonIgnore
-	private int noteId;
-	private String name;
-	private String type;
-	private Integer weight;
+public class UserNoteDto {
+	private String userId;
+	private String note;
+	private int userNoteGram;
+	private String memo;
 }
