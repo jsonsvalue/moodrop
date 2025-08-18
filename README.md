@@ -7,7 +7,7 @@
 ## DB
 1. DB ERD 작성
 2. Top, Middle, Base 분류에 따른 중복 데이터 제거
-[ERD 사진]
+<img width="1450" height="1282" alt="image" src="https://github.com/user-attachments/assets/f582d7b6-8b80-49d3-a91b-f906b719c0ee" />
 
 ## 백엔드 코드 작성
 1. 향수 데이터 웹 스크래핑(Selenium) 및 DB에 적재
